@@ -1,0 +1,42 @@
+# Terraform Cloudflare Zero Trust
+
+> Access applications and policies, Gateway policies, Cloudflared tunnels, device posture, and DLP.
+
+Terraform module for Cloudflare, maintained by CloudDrove. Source: `terraform-cf-modules/zero-trust/cloudflare`. Repository: https://github.com/terraform-cf-modules/terraform-cloudflare-zero-trust
+
+Requires Terraform >= 1.12.0 (or OpenTofu >= 1.12) and the `cloudflare/cloudflare` provider ~> 5.24. Provider v5 renamed most resources from v4, so verify resource names against the current provider docs rather than older examples.
+
+## Usage
+
+```hcl
+module "this" {
+  source  = "terraform-cf-modules/zero-trust/cloudflare"
+  version = "~> 0.1"
+}
+```
+
+## Submodules
+
+Each is separately addressable with the double slash source syntax.
+
+- [access-app](https://github.com/terraform-cf-modules/terraform-cloudflare-zero-trust/tree/main/modules/access-app): `terraform-cf-modules/zero-trust/cloudflare//modules/access-app`
+- [access-policy](https://github.com/terraform-cf-modules/terraform-cloudflare-zero-trust/tree/main/modules/access-policy): `terraform-cf-modules/zero-trust/cloudflare//modules/access-policy`
+- [device-posture](https://github.com/terraform-cf-modules/terraform-cloudflare-zero-trust/tree/main/modules/device-posture): `terraform-cf-modules/zero-trust/cloudflare//modules/device-posture`
+- [dlp](https://github.com/terraform-cf-modules/terraform-cloudflare-zero-trust/tree/main/modules/dlp): `terraform-cf-modules/zero-trust/cloudflare//modules/dlp`
+- [gateway-policy](https://github.com/terraform-cf-modules/terraform-cloudflare-zero-trust/tree/main/modules/gateway-policy): `terraform-cf-modules/zero-trust/cloudflare//modules/gateway-policy`
+- [identity](https://github.com/terraform-cf-modules/terraform-cloudflare-zero-trust/tree/main/modules/identity): `terraform-cf-modules/zero-trust/cloudflare//modules/identity`
+- [service-token](https://github.com/terraform-cf-modules/terraform-cloudflare-zero-trust/tree/main/modules/service-token): `terraform-cf-modules/zero-trust/cloudflare//modules/service-token`
+- [tunnel](https://github.com/terraform-cf-modules/terraform-cloudflare-zero-trust/tree/main/modules/tunnel): `terraform-cf-modules/zero-trust/cloudflare//modules/tunnel`
+
+## Documentation
+
+- [README](https://github.com/terraform-cf-modules/terraform-cloudflare-zero-trust/blob/main/README.md): overview and usage
+- [Inputs and outputs](https://github.com/terraform-cf-modules/terraform-cloudflare-zero-trust/blob/main/docs/io.md): every variable and output
+- [Examples](https://github.com/terraform-cf-modules/terraform-cloudflare-zero-trust/tree/main/examples): runnable configurations
+- [Architecture](https://github.com/terraform-cf-modules/terraform-cloudflare-zero-trust/blob/main/docs/architecture.md): resource map and provider quirks
+
+## Related
+
+- [All CloudDrove modules](https://github.com/clouddrove/toc): every module and submodule across AWS, Azure, Google Cloud, DigitalOcean, Hetzner Cloud and Cloudflare
+- [Organisation](https://github.com/terraform-cf-modules): the Cloudflare module family
+- [Terraform Registry](https://registry.terraform.io/namespaces/terraform-cf-modules)
