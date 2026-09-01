@@ -46,25 +46,98 @@ providers:
     version: "~> 5.24"
 
 description: |-
-  Terraform module for Cloudflare Zero Trust: Access applications and the reusable policies that protect them,
-  identity providers, service tokens, Secure Web Gateway rules, Cloudflared tunnels, device posture and Data Loss
-  Prevention.
+  Terraform module for Cloudflare Zero Trust. It builds a working posture rather than a pile of disconnected
+  objects: an identity provider, reusable Access groups and policies, the applications those policies protect,
+  service tokens for machine callers, Secure Web Gateway rules, Cloudflared tunnels, device posture and Data
+  Loss Prevention. The root module composes the common case, and the eight submodules under `modules/` are
+  each usable on their own.
 
-  The root module composes the common case, an Access application protected by policies and backed by an identity
-  provider, with Gateway rules applied. Eight submodules under `modules/` are usable on their own.
+  The opinion this module encodes is that you should never have to hard code an ID. The hard part of Zero
+  Trust in Terraform is the wiring: an application needs policy IDs, a policy needs group and service token
+  IDs, a route needs a tunnel ID, and none of those exist until after the first apply. Here you name things by
+  map key and the module resolves the IDs internally, with a `validation` block behind every key so a typo
+  fails at plan time naming the key you got wrong.
 
-  Cross references are made by key rather than by ID, so you never have to hard code an ID that does not exist
-  until after the first apply. `policy_keys`, `allowed_idp_keys`, `include_group_keys`, `tunnel_key`,
-  `virtual_network_key` and friends are resolved inside the module and checked by validation blocks.
+  Key resolution alone is not enough, because the references form a loop at the module level. Service tokens
+  must exist before Access policies can reference them, policies must exist before applications can attach
+  them, and short lived SSH certificates need an application ID. Terraform rejects that as a module cycle if
+  the resources sit in one call. The root module therefore calls `modules/service-token` twice, once for the
+  tokens before the policies and once again for the short lived certificates after the applications exist.
+  Ordinary attribute references then carry the dependency, so there is no `depends_on` anywhere in this module.
 
-  Every resource here targets Cloudflare provider v5. Cloudflare rewrote the provider from its OpenAPI spec in
+  Every resource targets Cloudflare provider v5. Cloudflare regenerated the provider from its OpenAPI spec in
   v5.0.0 and renamed almost everything in this product area, so `cloudflare_access_application` is now
   `cloudflare_zero_trust_access_application` and `cloudflare_teams_rule` is now
-  `cloudflare_zero_trust_gateway_policy`. See `docs/architecture.md` for the full rename table and the provider
-  quirks this module works around.
+  `cloudflare_zero_trust_gateway_policy`. See [`docs/architecture.md`](docs/architecture.md) for the full
+  rename table, the resource map and the provider quirks this module works around.
+
+  ### Reference things by key, not by ID
+
+  | Input | Resolves to |
+  |-------|-------------|
+  | `access_applications[*].policy_keys` | Access policy IDs |
+  | `access_applications[*].allowed_idp_keys` | Identity provider IDs |
+  | `access_applications[*].custom_page_keys` | Access custom page IDs |
+  | `access_policies[*].include_group_keys`, and the exclude and require variants | Access group IDs |
+  | `access_policies[*].include_service_token_keys` | Service token IDs |
+  | `access_policies[*].include_login_method_idp_keys` | Identity provider IDs |
+  | `short_lived_certificates[*].app_key` | Access application ID |
+  | `tunnel_routes[*].tunnel_key` and `virtual_network_key` | Tunnel and virtual network IDs |
+  | `dlp_entries[*].profile_key` | DLP profile ID |
+
+  ### Access rule selectors
+
+  `include`, `exclude` and `require` take a list where each element sets exactly one of 26 optional selector
+  keys. This is the shape that changed most between provider v4 and v5.
+
+  ```hcl
+  include = [
+    { email_domain = { domain = "example.com" } },
+    { geo          = { country_code = "GB" } },
+  ]
+  require = [{ auth_method = { auth_method = "mfa" } }]
+  exclude = [{ ip = { ip = "203.0.113.7" } }]
+  ```
+
+  Selectors that carry no fields of their own are written as empty objects, for example `{ everyone = {} }` or
+  `{ any_valid_service_token = {} }`. The full set is `any_valid_service_token`, `auth_context`, `auth_method`,
+  `azure_ad`, `certificate`, `cloudflare_account_member`, `common_name`, `device_posture`, `email`,
+  `email_domain`, `email_list`, `everyone`, `external_evaluation`, `geo`, `github_organization`, `group`,
+  `gsuite`, `ip`, `ip_list`, `linked_app_token`, `login_method`, `oidc`, `okta`, `saml`, `service_token` and
+  `user_risk_score`.
+
+  ### Per account singletons
+
+  `gateway_settings`, `gateway_logging`, `device_settings`, `device_default_profile` and `dlp_settings` exist
+  once per Cloudflare account. Each defaults to `null` and the resource is not created until you set it, so
+  two stacks in the same account cannot silently fight over them. Exactly one stack in your organisation
+  should own each.
+
+  ### Secrets
+
+  Tunnel secrets, service token client secrets, identity provider client secrets, SCIM secrets and device
+  posture integration credentials all land in Terraform state. Every output that carries one is marked
+  `sensitive = true`, namely `service_token_client_secrets`, `tunnel_secrets`, `tunnel_tokens`,
+  `identity_providers` and `access_applications`. Treat the state backend as a secret store. The module never
+  accepts a Cloudflare API token or key as an input; authentication belongs to the caller's `provider` block.
+
+submodules: |-
+  | Submodule | Source | Description |
+  |-----------|--------|-------------|
+  | [`access-app`](modules/access-app) | `terraform-cf-modules/zero-trust/cloudflare//modules/access-app` | Access applications and the custom block pages they present (`cloudflare_zero_trust_access_application`, `cloudflare_zero_trust_access_custom_page`). |
+  | [`access-policy`](modules/access-policy) | `terraform-cf-modules/zero-trust/cloudflare//modules/access-policy` | Reusable Access policies, groups and tags, attachable to any number of applications. |
+  | [`identity`](modules/identity) | `terraform-cf-modules/zero-trust/cloudflare//modules/identity` | Identity providers, mTLS certificates and mTLS hostname settings. |
+  | [`service-token`](modules/service-token) | `terraform-cf-modules/zero-trust/cloudflare//modules/service-token` | Service tokens for machine to machine callers, and short lived SSH certificate issuers. |
+  | [`gateway-policy`](modules/gateway-policy) | `terraform-cf-modules/zero-trust/cloudflare//modules/gateway-policy` | Secure Web Gateway rules plus gateway settings, logging, certificates, proxy endpoints, lists and DNS locations. |
+  | [`tunnel`](modules/tunnel) | `terraform-cf-modules/zero-trust/cloudflare//modules/tunnel` | Cloudflared tunnels, their ingress configuration, private network routes and virtual networks. |
+  | [`device-posture`](modules/device-posture) | `terraform-cf-modules/zero-trust/cloudflare//modules/device-posture` | Device posture rules and integrations, WARP device profiles, managed networks and device settings. |
+  | [`dlp`](modules/dlp) | `terraform-cf-modules/zero-trust/cloudflare//modules/dlp` | Data Loss Prevention profiles, custom entries, datasets and account level DLP settings. |
 
 usage: |-
   ### Root module
+
+  An identity provider, a group, a policy and the application the policy protects. This is
+  [`examples/basic`](examples/basic); [`examples/complete`](examples/complete) turns on every feature.
 
   ```hcl
   module "zero_trust" {
@@ -105,7 +178,10 @@ usage: |-
   }
   ```
 
-  ### Submodules
+  ### Gateway rules on their own
+
+  Take one submodule when you only want that slice. Lower `precedence` runs first, and `traffic` is a
+  Wirefilter expression.
 
   ```hcl
   module "gateway" {
@@ -116,40 +192,67 @@ usage: |-
     account_id = var.account_id
 
     policies = {
-      block_malware = {
+      block_security_risks = {
+        name       = "Block security risks"
         action     = "block"
         filters    = ["dns"]
         precedence = 100
         traffic    = "any(dns.security_category[*] in {80 83 117 131})"
       }
+
+      isolate_uncategorised = {
+        name       = "Isolate uncategorised sites"
+        action     = "isolate"
+        filters    = ["http"]
+        precedence = 200
+        traffic    = "any(http.request.uri.content_category[*] in {155})"
+      }
     }
   }
   ```
 
-  | Submodule | Manages |
-  |-----------|---------|
-  | `modules/access-app` | Access applications, custom pages |
-  | `modules/access-policy` | Access policies, groups, tags |
-  | `modules/identity` | Identity providers, mTLS certificates and hostname settings |
-  | `modules/service-token` | Service tokens, short lived SSH certificates |
-  | `modules/gateway-policy` | Gateway rules, settings, logging, certificates, proxy endpoints, lists, DNS locations |
-  | `modules/tunnel` | Cloudflared tunnels, configuration, routes, virtual networks |
-  | `modules/device-posture` | Posture rules and integrations, WARP profiles, managed networks, device settings |
-  | `modules/dlp` | DLP profiles, entries, datasets, settings |
+  ### A tunnel and the private network behind it
 
-  ### Wrapper for many instances
+  Routes point at a tunnel by `tunnel_key` and at a virtual network by `virtual_network_key`, both created in
+  the same call. The final ingress rule must be a catch all with no hostname. See
+  [`examples/tunnel-private-network`](examples/tunnel-private-network) for the longer version.
 
   ```hcl
-  module "many" {
-    source = "terraform-cf-modules/zero-trust/cloudflare//wrappers"
+  module "tunnel" {
+    source  = "terraform-cf-modules/zero-trust/cloudflare//modules/tunnel"
+    version = "~> 0.1"
 
-    defaults = {
-      account_id = var.account_id
+    enabled    = true
+    account_id = var.account_id
+
+    virtual_networks = {
+      prod = { name = "prod", comment = "Production private network" }
     }
 
-    items = {
-      corp = { access_applications = { intranet = { domain = "intranet.example.com" } } }
-      lab  = { enabled = false }
+    tunnels = {
+      prod = {
+        name       = "prod-egress"
+        config_src = "cloudflare"
+
+        config = {
+          ingress = [
+            { hostname = "app.example.com", service = "http://10.0.1.10:8080" },
+            { service = "http_status:404" },
+          ]
+        }
+      }
+    }
+
+    routes = {
+      prod_vpc = {
+        network             = "10.0.0.0/16"
+        comment             = "Production VPC"
+        tunnel_key          = "prod"
+        virtual_network_key = "prod"
+      }
     }
   }
   ```
+
+  A `wrappers/` module is also published for callers that need many instances of the root module driven by one
+  `for_each` over a `defaults` and `items` pair.
