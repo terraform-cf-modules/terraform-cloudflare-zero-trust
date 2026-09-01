@@ -2,7 +2,6 @@
 # One run block per validation block in variables.tf.
 
 mock_provider "cloudflare" {
-  override_during = plan
 }
 
 variables {
