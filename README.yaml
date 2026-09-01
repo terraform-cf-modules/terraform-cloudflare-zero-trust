@@ -1,0 +1,155 @@
+---
+#
+# This is the canonical configuration for `README.md`.
+# Run `make docs` for the terraform-docs block, the readme workflow rebuilds the rest.
+#
+
+name: Terraform Cloudflare Zero Trust
+
+intro: |-
+  With our comprehensive DevOps toolkit, streamline operations, automate workflows, enhance collaboration and deploy with confidence.
+
+badges_text: "Latest Release | License | Changelog"
+
+about: |-
+  Access applications and policies, Gateway policies, Cloudflared tunnels, device posture, and DLP.
+
+license: "APACHE"
+
+github_repo: terraform-cf-modules/terraform-cloudflare-zero-trust
+
+badges:
+  - name: "Terraform"
+    image: "https://img.shields.io/badge/Terraform-v1.10.0-green"
+    url: "https://www.terraform.io"
+
+  - name: "Licence"
+    image: "https://img.shields.io/badge/License-APACHE-blue.svg"
+    url: "LICENSE"
+
+  - name: "Changelog"
+    image: "https://img.shields.io/badge/Changelog-blue"
+    url: "CHANGELOG.md"
+
+prerequisites:
+  - name: Terraform
+    url: https://learn.hashicorp.com/terraform/getting-started/install.html
+    version: ">= 1.10.0"
+
+  - name: OpenTofu
+    url: https://opentofu.org/docs/intro/install/
+    version: ">= 1.9.0"
+
+providers:
+  - name: cloudflare
+    url: https://registry.terraform.io/providers/cloudflare/cloudflare/latest
+    version: "~> 5.24"
+
+description: |-
+  Terraform module for Cloudflare Zero Trust: Access applications and the reusable policies that protect them,
+  identity providers, service tokens, Secure Web Gateway rules, Cloudflared tunnels, device posture and Data Loss
+  Prevention.
+
+  The root module composes the common case, an Access application protected by policies and backed by an identity
+  provider, with Gateway rules applied. Eight submodules under `modules/` are usable on their own.
+
+  Cross references are made by key rather than by ID, so you never have to hard code an ID that does not exist
+  until after the first apply. `policy_keys`, `allowed_idp_keys`, `include_group_keys`, `tunnel_key`,
+  `virtual_network_key` and friends are resolved inside the module and checked by validation blocks.
+
+  Every resource here targets Cloudflare provider v5. Cloudflare rewrote the provider from its OpenAPI spec in
+  v5.0.0 and renamed almost everything in this product area, so `cloudflare_access_application` is now
+  `cloudflare_zero_trust_access_application` and `cloudflare_teams_rule` is now
+  `cloudflare_zero_trust_gateway_policy`. See `docs/architecture.md` for the full rename table and the provider
+  quirks this module works around.
+
+usage: |-
+  ### Root module
+
+  ```hcl
+  module "zero_trust" {
+    source  = "terraform-cf-modules/zero-trust/cloudflare"
+    version = "~> 0.1"
+
+    enabled    = true
+    account_id = var.account_id
+
+    identity_providers = {
+      otp = { name = "One time PIN", type = "onetimepin", config = {} }
+    }
+
+    access_groups = {
+      staff = { include = [{ email_domain = { domain = "example.com" } }] }
+    }
+
+    access_policies = {
+      allow_staff = {
+        decision           = "allow"
+        session_duration   = "24h"
+        include            = []
+        include_group_keys = ["staff"]
+        require            = [{ auth_method = { auth_method = "mfa" } }]
+      }
+    }
+
+    access_applications = {
+      intranet = {
+        name             = "Intranet"
+        type             = "self_hosted"
+        domain           = "intranet.example.com"
+        destinations     = [{ type = "public", uri = "intranet.example.com" }]
+        policy_keys      = ["allow_staff"]
+        allowed_idp_keys = ["otp"]
+      }
+    }
+  }
+  ```
+
+  ### Submodules
+
+  ```hcl
+  module "gateway" {
+    source  = "terraform-cf-modules/zero-trust/cloudflare//modules/gateway-policy"
+    version = "~> 0.1"
+
+    enabled    = true
+    account_id = var.account_id
+
+    policies = {
+      block_malware = {
+        action     = "block"
+        filters    = ["dns"]
+        precedence = 100
+        traffic    = "any(dns.security_category[*] in {80 83 117 131})"
+      }
+    }
+  }
+  ```
+
+  | Submodule | Manages |
+  |-----------|---------|
+  | `modules/access-app` | Access applications, custom pages |
+  | `modules/access-policy` | Access policies, groups, tags |
+  | `modules/identity` | Identity providers, mTLS certificates and hostname settings |
+  | `modules/service-token` | Service tokens, short lived SSH certificates |
+  | `modules/gateway-policy` | Gateway rules, settings, logging, certificates, proxy endpoints, lists, DNS locations |
+  | `modules/tunnel` | Cloudflared tunnels, configuration, routes, virtual networks |
+  | `modules/device-posture` | Posture rules and integrations, WARP profiles, managed networks, device settings |
+  | `modules/dlp` | DLP profiles, entries, datasets, settings |
+
+  ### Wrapper for many instances
+
+  ```hcl
+  module "many" {
+    source = "terraform-cf-modules/zero-trust/cloudflare//wrappers"
+
+    defaults = {
+      account_id = var.account_id
+    }
+
+    items = {
+      corp = { access_applications = { intranet = { domain = "intranet.example.com" } } }
+      lab  = { enabled = false }
+    }
+  }
+  ```
